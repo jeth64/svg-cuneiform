@@ -7,6 +7,7 @@
 
 (def style {:fill "none" :stroke "blue" :stroke-width 0.5})
 
+
 ;;
 ;; Helper functions
 ;;
@@ -17,12 +18,7 @@
 (defn- get-layer [file layer-id]
   (filter-xml file [{:id layer-id}]))
 
-(defn get-paths [file layer-id]
-  (apply merge (map #(let [path (parse-path (:d (second %)))]
-                 (hash-map (:id (second %)) path))
-              (filter-xml (first (get-layer file layer-id)) [:path]))))
-
-(defn get-transformations
+(defn- get-transformations
   "Returns pathids-transformations list"
   [file layer-id]
   (filter #(not-any? empty? %)
@@ -32,29 +28,35 @@
            [path-ids transform])
         (filter-xml (first (get-layer file layer-id)) [:g]))))
 
-
-(defn- get-translations
+(defn get-translations
   "Returns list of pathid-point pairs"
-  [transformlist]
-  (reduce into '() (map #(for [id (first %) transform (second %)
-                           :when (= "translate" (first transform))]
-                       [id (second transform)]) transformlist)))
+  [file layer-id]
+  (let [transformlist (get-transformations file layer-id)]
+    (reduce into '() (map #(for [id (first %) transform (second %)
+                                 :when (= "translate" (first transform))]
+                             [id (second transform)]) transformlist))))
 
-
-(defn- perform-translations [pathmap transformlist]
+(defn- translate [pathmap translations]
   (letfn [(pt-add [pt pt-list] (map (partial map + pt) pt-list))]
-    (let [translations (get-translations transformlist)]
       (loop [paths (transient pathmap) i 0]
         (if (< i (count translations))
           (let [[id value] (nth translations i)]
             (recur (assoc! paths id (pt-add value (paths id))) (inc i)))
-          (persistent! paths))))))
+          (persistent! paths)))))
+
+(defn- id-ptlist-map [file layer-id tag method translations]
+  (translate (reduce into {} (map #(hash-map (:id (second %)) (method (second %)))
+                                  (filter-xml (first (get-layer file layer-id)) [tag])))
+             translations))
 
 
-(defn pathid-points-map [file layer-id]
-  (let [pathmap (get-paths file layer-id)
-        transforms (get-transformations file layer-id)]
-    (perform-translations pathmap transforms)))
+(defn get-paths [file layer-id translations]
+  (id-ptlist-map file layer-id :path #(parse-path (:d %)) translations))
+
+(defn get-lines [file layer-id translations]
+  (id-ptlist-map file layer-id :line #(map (partial map read-string)
+                                           [[(:x1 %) (:y1 %)] [(:x2 %) (:y2 %)]])
+                 translations))
 
 
 ;;
@@ -74,7 +76,7 @@
     (if (zip/end? loc)
       (zip/root loc)
       (if-let [matcher-result (matcher (zip/node loc))]
-triples        (recur (zip/next (zip/remove (zip/up loc))))
+        (recur (zip/next (zip/remove (zip/up loc))))
         (recur (zip/next loc))))))
 
 (defn- find-layer [root group-id]
@@ -83,7 +85,7 @@ triples        (recur (zip/next (zip/remove (zip/up loc))))
                  (= (get (second node) :id) group-id)))]
       (loop [loc root]
         (if (zip/end? loc)
-          false
+          loc
           (if (certain-layer? (zip/node loc))
             loc
             (recur (zip/next loc)))))))
@@ -125,4 +127,4 @@ triples        (recur (zip/next (zip/remove (zip/up loc))))
 
 (defn update-and-save
   [file layer-id paths path-id-triples outfile]
-  (spit outfile (emit (update-file layer-id paths path-id-triples outfile))))
+  (spit outfile (emit (update-file file layer-id paths path-id-triples))))
