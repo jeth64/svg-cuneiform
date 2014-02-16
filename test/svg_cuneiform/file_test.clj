@@ -50,7 +50,6 @@
     (is (= (count (last clean)) 2))
     (is (= (count (last (file "1-0"))) 5))))
 
-
 (deftest test-update-file-3-0
   (let [translations (get-translations (file "1-0") layer-id)
         mat1342 [(filter #(= 4 (count %))
@@ -58,7 +57,7 @@
         wedges [["path8053" "path8037" "path8045"]]
         updated (last (update-file (file "1-0") layer-id mat1342 wedges))]
     (is (= (count updated) 3))
-    (is (= (last updated) '(:path {:d "M205.086,515.051 C214.753,516.551 222.336,516.385 240.419,513.301 C227.086,515.802 217.753,520.052 217.086,524.968 C218.92,519.968 217.003,522.718 216.42,531.635", :fill "none", :stroke "blue", :id "wedge0", :stroke-width 0.5})))))
+    (is (= (last updated) '(:path {:d "M205.086,515.051 C214.753,516.551 222.336,516.385 240.419,513.301 C218.92,519.968 217.003,522.718 216.42,531.635 C227.086,515.802 217.753,520.052 217.086,524.968", :fill "none", :stroke "blue", :id "wedge0", :stroke-width 0.5})))))
 
 (deftest test-update-and-save
   (update-and-save (file "1-0") layer-id [] [] outfile)
@@ -66,4 +65,4 @@
   (io/delete-file outfile true))
 
 
-;(run-tests 'svg-cuneiform.file-test)
+(run-tests 'svg-cuneiform.file-test)

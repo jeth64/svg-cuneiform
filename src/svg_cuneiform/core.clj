@@ -1,14 +1,16 @@
 (ns svg-cuneiform.core
   (:require [analemma.xml :refer [parse-xml transform-xml filter-xml emit]]
             [clojure.zip :as zip]
-            [svg-cuneiform.file :refer [get-svg pathid-points-map update-and-save update-file]]
+            [svg-cuneiform.file :refer [get-svg get-translations get-paths
+                                        update-and-save update-file]]
             [clojure.core.matrix :as mat]
             [clojure.math.combinatorics :refer [permutations]]))
 
 
 (def layer-id "cuneiforms")
 (def file (get-svg "test/svg_cuneiform/images/3-0.svg"))
-(def paths (pathid-points-map file layer-id))
+(def translations (get-translations file layer-id))
+(def paths (get-paths file layer-id translations))
 (def outfile "test/svg_cuneiform/images/out.svg")
 (def delete ["path8055"])
 (def new-paths []) ;;[[(second (k-means curve 4))]]
@@ -36,7 +38,7 @@
             [new-labels centroids]
             (recur new-labels (update-centroids data new-labels)))))))
 
-(def curve (second (first (pathid-points-map file layer-id))))
+(def curve (second (first (get-paths file layer-id translations))))
 
 (defn reduce-path [ptlist]
   (letfn [(euclidean-squared [a b] (mat/length-squared (mat/sub a b)))]

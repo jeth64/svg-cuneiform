@@ -41,7 +41,9 @@
       (loop [paths (transient pathmap) i 0]
         (if (< i (count translations))
           (let [[id value] (nth translations i)]
-            (recur (assoc! paths id (pt-add value (paths id))) (inc i)))
+            (if (not= (get paths id) nil)
+              (recur (assoc! paths id (pt-add value (paths id))) (inc i))
+              (recur paths (inc i))))
           (persistent! paths)))))
 
 (defn- id-ptlist-map [file layer-id tag method translations]
