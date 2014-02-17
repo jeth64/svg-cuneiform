@@ -52,7 +52,7 @@
              translations))
 
 
-(defn get-paths [file layer-id translations]
+(defn get-paths [file layer-id translations] ;TODO: extract only one (first) path per group
   (id-ptlist-map file layer-id :path #(parse-path (:d %)) translations))
 
 (defn get-lines [file layer-id translations]
@@ -108,7 +108,7 @@
           (recur (inc i) (zip/append-child loc (nth new-nodes i)))
           (zip/root loc)))))
 
-(defn clean-file [file path-ids]
+(defn clean-file [file path-ids] ;; TODO: delete line nodes
   (letfn [(certain-path? [node]
             (and (seq? node) (= :path (first node))
                  (some #(= (get (second node) :id) %) path-ids)))
