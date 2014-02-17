@@ -66,7 +66,7 @@
 ;;
 
 (defn- remove-nodes [root matcher]
-  (loop [loc root]
+  (loop [loc (zip/seq-zip root)]
     (if (zip/end? loc)
       (zip/root loc)
       (if-let [matcher-result (matcher (zip/node loc))]
@@ -74,7 +74,7 @@
         (recur (zip/next loc))))))
 
 (defn- remove-parent [root matcher]
-  (loop [loc root]
+  (loop [loc (zip/seq-zip root)]
     (if (zip/end? loc)
       (zip/root loc)
       (if-let [matcher-result (matcher (zip/node loc))]
@@ -108,25 +108,32 @@
           (recur (inc i) (zip/append-child loc (nth new-nodes i)))
           (zip/root loc)))))
 
-(defn clean-file [file path-ids] ;; TODO: delete line nodes
+(defn clean-file [file path-ids line-ids]
   (letfn [(certain-path? [node]
             (and (seq? node) (= :path (first node))
                  (some #(= (get (second node) :id) %) path-ids)))
+          (certain-line? [node]
+            (and (seq? node) (= :line (first node))
+                 (some #(= (get (second node) :id) %) line-ids)))
           (empty-group? [node]
             (and (seq? node) (= :g (first node)) (= (count node) 2)))]
-    (remove-nodes (zip/seq-zip (remove-parent (zip/seq-zip file) certain-path?)) empty-group?)))
+    (-> file
+        (remove-parent certain-path?)
+        (remove-nodes certain-line?)
+        (remove-nodes empty-group?))
+    ))
 
 
 (defn update-file
   "Create path nodes for wedges, delete nodes plus parent group of used nodes
    and one layer of empty groups. (input 'paths': nx3x4x2-matrix, in right order)"
-  [file layer-id paths path-id-triples]
+  [file layer-id paths path-ids line-ids]
   (let [nodes (create-wedge-nodes paths)]
     (-> file
         (zip/seq-zip)
         (add-wedge-nodes layer-id nodes)
-        (clean-file (set (flatten path-id-triples))))))
+        (clean-file (set (flatten path-ids)) (set (flatten line-ids))))))
 
 (defn update-and-save
-  [file layer-id paths path-id-triples outfile]
-  (spit outfile (emit (update-file file layer-id paths path-id-triples))))
+  [file layer-id paths path-ids line-ids outfile]
+  (spit outfile (emit (update-file file layer-id paths path-ids line-ids))))
