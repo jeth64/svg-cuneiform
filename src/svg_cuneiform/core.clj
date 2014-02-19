@@ -4,12 +4,7 @@
             [svg-cuneiform.file :refer [get-svg get-translations get-paths get-lines
                                         update-and-save update-file]]
             [clojure.math.combinatorics :refer [permutations]]
-            [clojure.contrib.seq :refer [positions]]
-            [incanter
-             [stats :refer :all]
-             [core :refer :all]
-             [charts :refer :all]
-             [datasets :refer :all]]))
+            [incanter [stats :refer :all]]))
 
 
 (def layer-id "cuneiforms")
@@ -41,7 +36,6 @@
         [a1r a2] [(reverse (map - p1 p2)) (map - p3 p4)]
         b (map - p3 p1)
         determinant (apply - (map * a1r a2))
-        l (print ptlist)
         avg (average ptlist)]
     (if (> (Math/abs determinant) 0.000001)
       (let [intersect (map #(- %1 (* %2 (/ (apply - (map * a1r b)) determinant))) p3 a2)
@@ -77,15 +71,19 @@
                    (permutations points)))]
     (if (> (count ptlist) 4) (order-points (k-means ptlist)) ptlist)))
 
-
-(def curve (second (first paths)))
-(def labels (flatten [(take 6 (repeat 1)) (take 7 (repeat 2))])) ;13
+(defn end-slopes [p1 p2 p3 p4]
+  (letfn [(whiten [v] (map #(/ % (euclidean-distance [0 0] v)) v))]
+    (map whiten [(map - p1 p2) (map - p4 p3)])))
 
 
 (def reduced-paths (reduce #(update-in %1 [%2] k-means-reduce) paths (keys paths)))
-(def references (reduce #(update-in %1 [%2] intersection) paths (keys paths)))
+(def references (reduce #(update-in %1 [%2] intersection) reduced-paths (keys reduced-paths)))
+(def slopes (reduce #(update-in %1 [%2] (partial apply end-slopes))
+                    reduced-paths (keys reduced-paths)))
 
 
+(print reduced-paths)
+(print slopes)
 
 (defn main []
   (let [layer-id "cuneiforms";"g20"
@@ -97,44 +95,20 @@
         lines (get-lines file layer-id translations)
         reduced-paths (reduce #(update-in %1 [%2] k-means-reduce) paths (keys paths))
         references (reduce #(update-in %1 [%2] intersection) reduced-paths (keys paths))
+        slopes (reduce #(update-in %1 [%2] (partial apply end-slopes)) reduced-paths (keys paths))
 
-        ;new-paths (map #(vector (second %)) reduced-paths)
-        ;new-paths (apply merge (map #(vector (second %)) reduced-paths) (map #(vector (repeat 4 (second %))) references))
-        new-paths (map #(vector (cons [0 0] (repeat 3 (second %)))) references)
-        to-delete [];[(keys paths)]
+        ;; new-paths (map #(vector (second %)) reduced-paths)
+        ;; show points:
+        ;; new-paths (map #(vector (cons (map (partial + 0.5) (second %)) (repeat 3 (second %)))) references)
+        ;; show slopes: not yet working
+        ;; new-paths (merge [] (map #(vector (cons (map + (first %1) (first %2)) (repeat 3 (first %2)))) (vals slopes) (vals reduced-paths)) (map #(vector (cons (map + (last %1) (last %2)) (repeat 3 (last %2)))) (vals slopes) (vals reduced-paths)))
+
+        paths-to-delete [];[(keys paths)]
+        lines-to-delete []
         ]
-    (update-and-save file layer-id new-paths to-delete [] outfile)
+   ;; (update-and-save file layer-id new-paths paths-to-delete lines-to-delete outfile)
+    ;; new-paths
+
     ))
 
 (time (main))
-
-
-
-;(defn regression-reduce [ptlist] ptlist)
-
-;(def data (to-matrix (get-dataset :filip)))
-;(def y (sel data :cols 0))
-;(def x (sweep (sel data :cols 1)))
-
-(def pts (get (get-paths file layer-id translations) "path2536"))
-(def y (map first pts))
-(def x (map second pts))
-
-(def plot (scatter-plot x y))
-(view plot)
-
-
-
-;; the following line of code creates a matrix of the polynomial terms x, x^2, x^3
-(def X (reduce bind-columns (for [i (range 1 4)] (pow x i))))
-
-;; run the regression
-(def lm (linear-model y X))
-(print lm)
-(:coefs lm)
-(add-points plot x (map (partial + (last (:residuals lm))) (:fitted lm)))
-
-(view plot)
-
-(print pts)
-;(def furthest-from-first [pts] (apply max-key #(euclidean-squared (first pts) %) (rest pts)))
