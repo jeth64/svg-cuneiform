@@ -1,10 +1,12 @@
 (ns svg-cuneiform.core
   (:require [analemma.xml :refer [parse-xml transform-xml filter-xml emit]]
             [clojure.zip :as zip]
-            [svg-cuneiform.file :refer [get-svg get-translations get-paths get-lines
-                                        update-and-save update-file]]
-            [clojure.math.combinatorics :refer [permutations]]
+            [svg-cuneiform.file :refer
+             [get-svg get-translations get-paths get-lines
+              update-and-save update-file]]
+            [clojure.math.combinatorics :refer [permutations selections]]
             [incanter [stats :refer :all]]))
+
 
 
 (def layer-id "cuneiforms")
@@ -71,20 +73,86 @@
                    (permutations points)))]
     (if (> (count ptlist) 4) (order-points (k-means ptlist)) ptlist)))
 
-(defn end-slopes [p1 p2 p3 p4]
-  (letfn [(whiten [v] (map #(/ % (euclidean-distance [0 0] v)) v))]
-    (map whiten [(map - p1 p2) (map - p4 p3)])))
+(def enumerations (vec (keys paths)))
+(def reduced-paths (vec (map k-means-reduce (vals paths))))
+(def references (vec (map intersection reduced-paths)))
 
-
-(def reduced-paths (reduce #(update-in %1 [%2] k-means-reduce) paths (keys paths)))
-(def references (reduce #(update-in %1 [%2] intersection) reduced-paths (keys reduced-paths)))
-(def slopes (reduce #(update-in %1 [%2] (partial apply end-slopes))
-                    reduced-paths (keys reduced-paths)))
-
-
+(def ptlist references)
+(print enumerations)
 (print reduced-paths)
+(print references)
 (print slopes)
 
+
+(vec (replace reduced-paths '(0 1 2)))
+(pairwise-dist ptlist)
+(three-closest-pts ptlist)
+
+(valid? curves)
+(def curves (vec (replace reduced-paths (first (get-triples ptlist)))))
+
+(defn get-triples [ptlist]
+  (letfn [;; returns simple matrix
+          (pairwise-dist [ptlist]
+            (map #(map (partial euclidean-squared %) ptlist) ptlist))
+          ;; returns for each point indices of three closest points
+          ;; including itself
+          (three-closest-pts [ptlist]
+            (map keys
+                 (map #(take 3 (sort-by last
+                                        (zipmap (range (count ptlist)) %)))
+                           (pairwise-dist ptlist))))]
+    (map (comp vec first)
+         (filter #(= 3 (second %))
+                 (frequencies (map set (three-closest-pts ptlist)))))))
+
+(defn flip-curves [reduced-paths triple]
+  (letfn [(costs [possibility]
+            (reduce + (map #(euclidean-squared (last %1) (first %2))
+                           possibility
+                           (next (cycle possibility)))))]
+    (let [curves (replace reduced-paths triple)
+          flips (selections [true false] 3)
+          possibilities (map (partial map #(if %3 %1 %2)
+                                      curves (map reverse curves)) flips)]
+      (apply min-key costs possibilities))))
+
+(defn merge-ends [curves refpoints]
+  (let [midpoint (average refpoints)]
+    (reduce #(if (< (euclidean-squared midpoint (last (nth curves %2)))
+                    (euclidean-squared
+                     midpoint (first (nth curves (mod (inc %2) 3)))))
+               (assoc %1 %2
+                      (conj (vec (drop-last (nth %1 %2)))
+                            (first (nth %1 (mod (inc %2) 3)))))
+               (assoc %1 (mod (inc %2) 3)
+                      (cons (last (nth %1 %2))
+                            (rest (nth %1 (mod (inc %2) 3))))))
+            (vec curves) (range 3))))
+
+(defn valid? [curves]
+  (letfn [(whiten [v] (map #(/ % (euclidean-distance [0 0] v)) v))
+          (end-slopes [p1 p2 p3 p4]
+            (map whiten [(map - p1 p2) (map - p4 p3)]))
+          (dot-product [a b] (reduce + (map * a b)) )]
+    (let [slopes (map (partial apply end-slopes) curves)
+          cos-alphas (map #(dot-product (last %1) (first %2))
+                         slopes (next (cycle slopes)))]
+      (some #(< 0 % 1) cos-alphas))))
+
+(defn get-wedges [reduced-paths references]
+  (let [triples (get-triples references)
+        wedges (filter #(valid? (second %))
+                       (zipmap triples
+                               (map (partial flip-curves reduced-paths)
+                                    triples)))
+        used-keys (flatten (keys wedges))
+        paths (map #(merge-ends (second %) (replace references (first %)))
+                   wedges)]
+    [paths used-keys]))
+
+
+(time (main))
 (defn main []
   (let [layer-id "cuneiforms";"g20"
         file (get-svg "test/svg_cuneiform/images/3-1.svg")
@@ -92,23 +160,22 @@
         outfile "test/svg_cuneiform/images/out.svg"
         translations (get-translations file layer-id)
         paths (get-paths file layer-id translations)
+        enumerations (vec (keys paths))
         lines (get-lines file layer-id translations)
-        reduced-paths (reduce #(update-in %1 [%2] k-means-reduce) paths (keys paths))
-        references (reduce #(update-in %1 [%2] intersection) reduced-paths (keys paths))
-        slopes (reduce #(update-in %1 [%2] (partial apply end-slopes)) reduced-paths (keys paths))
+        reduced-paths (vec (map k-means-reduce (vals paths)))
+        references (vec (map intersection reduced-paths))
+        [wedges used-keys] (get-wedges reduced-paths references)
 
-        ;; new-paths (map #(vector (second %)) reduced-paths)
+        new-paths (concat wedges (map #(vector (cons (map (partial + 0.5) %) (repeat 3 %))) references))
+
         ;; show points:
-        ;; new-paths (map #(vector (cons (map (partial + 0.5) (second %)) (repeat 3 (second %)))) references)
-        ;; show slopes: not yet working
-        ;; new-paths (merge [] (map #(vector (cons (map + (first %1) (first %2)) (repeat 3 (first %2)))) (vals slopes) (vals reduced-paths)) (map #(vector (cons (map + (last %1) (last %2)) (repeat 3 (last %2)))) (vals slopes) (vals reduced-paths)))
+        ;; new-paths (map #(vector (cons (map (partial + 0.5) %) (repeat 3 %))) references)
+        ;; show slopes:
+        ;; new-paths (concat (map #(vector (cons (map + (map (partial * -5) (first %1)) (first %2)) (repeat 3 (first %2)))) slopes reduced-paths) (map #(vector (cons (map + (map (partial * -5) (last %1)) (last %2)) (repeat 3 (last %2)))) slopes reduced-paths))
 
-        paths-to-delete [];[(keys paths)]
+        paths-to-delete (replace enumerations used-keys);[(keys paths)]
         lines-to-delete []
         ]
-   ;; (update-and-save file layer-id new-paths paths-to-delete lines-to-delete outfile)
-    ;; new-paths
-
+    (update-and-save file layer-id new-paths paths-to-delete lines-to-delete outfile)
+;new-paths
     ))
-
-(time (main))
