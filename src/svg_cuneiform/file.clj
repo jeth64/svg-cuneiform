@@ -52,8 +52,14 @@
              translations))
 
 
-(defn get-paths [file layer-id translations] ;TODO: extract only one (first) path per group
-  (id-ptlist-map file layer-id :path #(parse-path (:d %)) translations))
+(defn get-paths [file layer-id translations]
+  ;(id-ptlist-map file layer-id :path #(parse-path (:d %)) translations)
+  (translate (reduce into {} (map #(hash-map (:id (second %)) (parse-path (:d (second %))))
+                              (find-paths (find-layer (zip/seq-zip file) "cuneiforms"))))
+             translations))
+
+
+;(find-paths (find-layer (zip/seq-zip (get-svg "test/svg_cuneiform/images/1-1.svg")) "cuneiforms"))
 
 (defn get-lines [file layer-id translations]
   (id-ptlist-map file layer-id :line #(map (partial map read-string)
@@ -91,6 +97,20 @@
           (if (certain-layer? (zip/node loc))
             loc
             (recur (zip/next loc)))))))
+
+(defn- find-paths [root]
+  (letfn [(path-group? [loc]
+            (let [node (zip/node loc)
+                  first-child (get (vec (zip/node loc)) 2 nil)]
+              (and (seq? node) (= :g (first node))
+                   (seq? first-child) (= :path (first first-child)))))]
+      (loop [loc root nodes '()]
+        (if (zip/end? loc)
+          nodes
+          (if (and (zip/branch? loc) (path-group? loc))
+            (recur (zip/next loc) (conj nodes (nth (zip/node loc) 2)))
+            (recur (zip/next loc) nodes))))))
+
 
 ;;
 ;; Higher-level functions for xml map transformations

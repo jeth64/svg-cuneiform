@@ -30,7 +30,7 @@
   (let [translations (get-translations (file "1-0") layer-id)
         paths (get-paths (file "1-0") layer-id translations)]
     (is (= (last (get paths "path8045")) '(216.42 531.635)))
-    (is (= (count paths) 6))))
+    (is (= (count paths) 3)))) ; only first path per group
 
 
 (deftest test-get-lines-2-0
