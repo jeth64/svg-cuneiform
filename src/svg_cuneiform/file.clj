@@ -9,6 +9,51 @@
 
 
 ;;
+;; Zipper functionalities for xml map manipulation
+;;
+
+(defn- remove-nodes [root matcher]
+  (loop [loc (zip/seq-zip root)]
+    (if (zip/end? loc)
+      (zip/root loc)
+      (if-let [matcher-result (matcher (zip/node loc))]
+        (recur (zip/next (zip/remove loc)))
+        (recur (zip/next loc))))))
+
+(defn- remove-parent [root matcher]
+  (loop [loc (zip/seq-zip root)]
+    (if (zip/end? loc)
+      (zip/root loc)
+      (if-let [matcher-result (matcher (zip/node loc))]
+        (recur (zip/next (zip/remove (zip/up loc))))
+        (recur (zip/next loc))))))
+
+(defn- find-layer [root group-id]
+  (letfn [(certain-layer? [node]
+            (and (seq? node) (= :g (first node))
+                 (= (get (second node) :id) group-id)))]
+      (loop [loc root]
+        (if (zip/end? loc)
+          loc
+          (if (certain-layer? (zip/node loc))
+            loc
+            (recur (zip/next loc)))))))
+
+(defn find-paths [root]
+  (letfn [(path-group? [loc]
+            (let [node (zip/node loc)
+                  first-child (get (vec (zip/node loc)) 2 nil)]
+              (and (seq? node) (= :g (first node))
+                   (seq? first-child) (= :path (first first-child)))))]
+      (loop [loc root nodes '()]
+        (if (zip/end? loc)
+          nodes
+          (if (and (zip/branch? loc) (path-group? loc))
+            (recur (zip/next loc) (conj nodes (nth (zip/node loc) 2)))
+            (recur (zip/next loc) nodes))))))
+
+
+;;
 ;; Helper functions
 ;;
 
@@ -52,6 +97,7 @@
              translations))
 
 
+
 (defn get-paths [file layer-id translations]
   ;(id-ptlist-map file layer-id :path #(parse-path (:d %)) translations)
   (translate (reduce into {} (map #(hash-map (:id (second %)) (parse-path (:d (second %))))
@@ -66,50 +112,6 @@
                                            [[(:x1 %) (:y1 %)] [(:x2 %) (:y2 %)]])
                  translations))
 
-
-;;
-;; Zipper functionalities for xml map manipulation
-;;
-
-(defn- remove-nodes [root matcher]
-  (loop [loc (zip/seq-zip root)]
-    (if (zip/end? loc)
-      (zip/root loc)
-      (if-let [matcher-result (matcher (zip/node loc))]
-        (recur (zip/next (zip/remove loc)))
-        (recur (zip/next loc))))))
-
-(defn- remove-parent [root matcher]
-  (loop [loc (zip/seq-zip root)]
-    (if (zip/end? loc)
-      (zip/root loc)
-      (if-let [matcher-result (matcher (zip/node loc))]
-        (recur (zip/next (zip/remove (zip/up loc))))
-        (recur (zip/next loc))))))
-
-(defn- find-layer [root group-id]
-  (letfn [(certain-layer? [node]
-            (and (seq? node) (= :g (first node))
-                 (= (get (second node) :id) group-id)))]
-      (loop [loc root]
-        (if (zip/end? loc)
-          loc
-          (if (certain-layer? (zip/node loc))
-            loc
-            (recur (zip/next loc)))))))
-
-(defn- find-paths [root]
-  (letfn [(path-group? [loc]
-            (let [node (zip/node loc)
-                  first-child (get (vec (zip/node loc)) 2 nil)]
-              (and (seq? node) (= :g (first node))
-                   (seq? first-child) (= :path (first first-child)))))]
-      (loop [loc root nodes '()]
-        (if (zip/end? loc)
-          nodes
-          (if (and (zip/branch? loc) (path-group? loc))
-            (recur (zip/next loc) (conj nodes (nth (zip/node loc) 2)))
-            (recur (zip/next loc) nodes))))))
 
 
 ;;
