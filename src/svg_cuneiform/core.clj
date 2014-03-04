@@ -5,7 +5,8 @@
              [get-svg get-translations get-paths get-lines
               update-and-save update-file]]
             [clojure.math.combinatorics :refer [permutations selections]]
-            [incanter [stats :refer :all]]))
+            [incanter [stats :refer :all]]
+            ))
 
 
 
@@ -19,6 +20,8 @@
 (def new-paths []) ;;[[(k-means curve 4)]]
 ; file 3-0: "path2536" "path2540" "path1532"
 
+
+
 ;;
 ;; helper functions
 ;;
@@ -29,6 +32,9 @@
 (defn- average [ptlist]
   (if (< (count ptlist) 1) nil
       (map #(/ % (count ptlist)) (apply map + ptlist))))
+
+(defn cross-product [a b];; = determinant
+  (- (* (first a) (second b)) (* (first b) (second a))))
 
 (defn- intersection
   "Returns intersection of lines through p1 and p2 and p3 and p4 respectively.
@@ -48,6 +54,7 @@
 
 
 (defn k-means
+  "Modified k-means with fixed centroids"
   [data]
   (letfn [(closest-ind [pt ptlist]
             (apply min-key #(euclidean-squared pt (nth ptlist %))
@@ -56,7 +63,8 @@
             (apply max-key #(euclidean-squared (first ptlist) %)
                    ptlist))
           (nth-centroid [labels n]
-            (average (map second (filter #(= n (first %)) (map vector labels data)))))
+            (average (map second (filter #(= n (first %))
+                                         (map vector labels data)))))
           ]
     (loop [old-labels (take (count data) (repeat -1))
            centroids (conj (vec (take 3 data)) (last-pt data))]
@@ -73,23 +81,6 @@
                    (permutations points)))]
     (if (> (count ptlist) 4) (order-points (k-means ptlist)) ptlist)))
 
-(def enumerations (vec (keys paths)))
-(def reduced-paths (vec (map k-means-reduce (vals paths))))
-(def references (vec (map intersection reduced-paths)))
-
-(def ptlist references)
-(print enumerations)
-(print reduced-paths)
-(print references)
-(print slopes)
-
-
-(vec (replace reduced-paths '(0 1 2)))
-(pairwise-dist ptlist)
-(three-closest-pts ptlist)
-
-(valid? curves)
-(def curves (vec (replace reduced-paths (first (get-triples ptlist)))))
 
 (defn get-triples [ptlist]
   (letfn [;; returns simple matrix
@@ -152,19 +143,43 @@
     [paths used-keys]))
 
 
+(def enumerations (vec (keys paths)))
+(def reduced-paths (vec (map k-means-reduce (vals paths))))
+(def references (vec (map intersection reduced-paths)))
+
+(def ptlist references)
+(print enumerations)
+(print reduced-paths)
+(print references)
+
+(defn pt-line-dist [p]
+  (reduce #(+ %1 (/ (Math/abs (cross-product (map - (first p) (last p))
+                                             (map - %2 (first p))))
+                    (Math/sqrt (euclidean-squared (map - (first p) (last p)) [0 0]))))
+       0 (rest (butlast p))))
+
+(defn classify-paths [p threshold]
+  (map (partial apply mapv vector)
+       (vals (group-by #(> (pt-line-dist (second %)) threshold) p))))
+
+
 (time (main))
 (defn main []
-  (let [layer-id "cuneiforms";"g20"
-        file (get-svg "test/svg_cuneiform/images/3-1.svg")
-        ;file (get-svg "test/svg_cuneiform/images/VAT_10833-SeiteB_HPSchaudig.svg")
+  (let [[layer-id filename]
+        ["cuneiforms" "test/svg_cuneiform/images/3-1.svg"]
+       ;; ["g20" "test/svg_cuneiform/images/VAT_10833-SeiteB_HPSchaudig.svg"]
+        file (get-svg filename)
         outfile "test/svg_cuneiform/images/out.svg"
         translations (get-translations file layer-id)
         paths (get-paths file layer-id translations)
-        enumerations (vec (keys paths))
-        lines (get-lines file layer-id translations)
-        reduced-paths (vec (map k-means-reduce (vals paths)))
-        references (vec (map intersection reduced-paths))
-        [wedges used-keys] (get-wedges reduced-paths references)
+        reduced-paths (vec (map k-means-reduce (vals paths))) ;; make map
+        [curve-map line-map] (classify-paths (zipmap (vec (keys paths)) reduced-paths) 0.507)
+        enumerations (vec (first curve-map))
+        curves (vec (second curve-map))
+
+        ;; lines (apply merge (get-lines file layer-id translations) line-map)
+        references (vec (map intersection curves))
+        [wedges used-keys] (get-wedges curves references)
 
         new-paths (concat wedges (map #(vector (cons (map (partial + 0.5) %) (repeat 3 %))) references))
 
@@ -176,6 +191,7 @@
         paths-to-delete (replace enumerations used-keys);[(keys paths)]
         lines-to-delete []
         ]
+
     (update-and-save file layer-id new-paths paths-to-delete lines-to-delete outfile)
 ;new-paths
     ))
