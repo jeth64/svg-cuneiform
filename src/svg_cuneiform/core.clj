@@ -5,7 +5,7 @@
              [get-svg get-translations get-paths get-lines
               update-and-save update-file]]
             [clojure.math.combinatorics :refer [permutations selections]]
-            [incanter [stats :refer :all]]
+            [incanter [stats :refer :all] [core :refer [matrix decomp-svd]]]
             ))
 
 
@@ -54,13 +54,14 @@
 
 
 (defn k-means
-  "Modified k-means with fixed centroids"
+  "Modified 4-means with 2 fixed centroids"
   [data]
   (letfn [(closest-ind [pt ptlist]
             (apply min-key #(euclidean-squared pt (nth ptlist %))
                    (range (count ptlist))))
           (last-pt [ptlist]
             (apply max-key #(euclidean-squared (first ptlist) %)
+                   ;;(take-nth 3)
                    ptlist))
           (nth-centroid [labels n]
             (average (map second (filter #(= n (first %))
@@ -155,12 +156,22 @@
 (defn pt-line-dist [p]
   (reduce #(+ %1 (/ (Math/abs (cross-product (map - (first p) (last p))
                                              (map - %2 (first p))))
-                    (Math/sqrt (euclidean-squared (map - (first p) (last p)) [0 0]))))
+                    (Math/sqrt (euclidean-squared (map - (first p) (last p))
+                                                  [0 0]))))
        0 (rest (butlast p))))
 
-(defn classify-paths [p threshold]
+(defn classify-paths-old [p threshold]
   (map (partial apply mapv vector)
        (vals (group-by #(> (pt-line-dist (second %)) threshold) p))))
+
+
+(defn whiten [data]
+  (map #(map - % (average data)) data))
+
+(defn classify-paths [paths]; vor reduced
+  (map (partial apply mapv vector)
+       (vals (apply sorted-set (group-by (comp (partial > 1.0) second :S decomp-svd
+                                               matrix whiten second) paths)))))
 
 
 (time (main))
@@ -171,18 +182,15 @@
         file (get-svg filename)
         outfile "test/svg_cuneiform/images/out.svg"
         translations (get-translations file layer-id)
-        paths (get-paths file layer-id translations)
-        reduced-paths (vec (map k-means-reduce (vals paths))) ;; make map
-        [curve-map line-map] (classify-paths (zipmap (vec (keys paths)) reduced-paths) 0.507)
+        [curve-map line-map] (classify-paths (get-paths file layer-id translations))
         enumerations (vec (first curve-map))
-        curves (vec (second curve-map))
+        curves (vec (map k-means-reduce (second curve-map)))
 
         ;; lines (apply merge (get-lines file layer-id translations) line-map)
         references (vec (map intersection curves))
         [wedges used-keys] (get-wedges curves references)
 
         new-paths (concat wedges (map #(vector (cons (map (partial + 0.5) %) (repeat 3 %))) references))
-
         ;; show points:
         ;; new-paths (map #(vector (cons (map (partial + 0.5) %) (repeat 3 %))) references)
         ;; show slopes:
@@ -192,6 +200,5 @@
         lines-to-delete []
         ]
 
-    (update-and-save file layer-id new-paths paths-to-delete lines-to-delete outfile)
-;new-paths
-    ))
+ (update-and-save file layer-id new-paths paths-to-delete lines-to-delete outfile)
+       ))
