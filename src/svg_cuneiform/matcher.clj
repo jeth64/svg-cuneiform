@@ -22,32 +22,15 @@
   (if (< (count ptlist) 1) nil
       (map #(/ % (count ptlist)) (apply map + ptlist))))
 
-
-
-
-;;
-;; Special helper functions
-;;
-
-(defn intersection
-  "Returns intersection of lines through p1 and p2 and p3 and p4 respectively.
-   Returns average of points if lines are parallel"
-  [ptlist]
-  (let [[p1 p2 p3 p4] ptlist
-        [a1r a2] [(reverse (map - p1 p2)) (map - p3 p4)]
-        b (map - p3 p1)
-        determinant (apply - (map * a1r a2))
-        avg (average ptlist)]
-    (if (> (Math/abs determinant) 0.000001)
-      (let [intersect (map #(- %1 (* %2 (/ (apply - (map * a1r b)) determinant))) p3 a2)
-            pathlength (reduce + (map euclidean-squared ptlist (rest ptlist)) )]
-        (if (< (euclidean-squared intersect avg) pathlength)
-          intersect avg))
-      avg)))
-
+(defn- whiten [data] (map #(map - % (average data)) data))
 
 (defn- furthest-from-first [ptlist]
   (apply max-key #(euclidean-squared (first ptlist) %) ptlist))
+
+
+;;
+;; Curve formatting
+;;
 
 
 (defn- k-means
@@ -69,11 +52,49 @@
           centroids)))))
 
 
-(defn k-means-reduce [ptlist]
+(defn- k-means-reduce [ptlist]
   (letfn [(order-points [points]
             (apply min-key #(reduce + (map euclidean-squared % (rest %)))
                    (permutations points)))]
     (if (> (count ptlist) 4) (order-points (k-means ptlist)) ptlist)))
+
+
+(defn classify-paths ;; TODO: improve; threshold varies
+  "Uses second singular value of data lists to distiguish lines and curves.
+   Returns [curve-map line-map]"
+  [paths threshold]
+  ;; (map (partial apply mapv vector))
+  (vals (apply sorted-set (group-by (comp (partial > threshold) second :S
+                                          decomp-svd matrix whiten second) paths))))
+
+
+(defn classify-and-reduce [paths threshold]
+  (let [[curves lines] (classify-paths paths threshold)]
+    [(zipmap (keys curves) (map k-means-reduce (vals curves)))
+     (zipmap (keys lines) (map #(vector (first %) (furthest-from-first %)) (vals lines)))]))
+
+
+
+;;
+;; Matcher functionality
+;;
+
+
+(defn intersection
+  "Returns intersection of lines through p1 and p2 and p3 and p4 respectively.
+   Returns average of points if lines are parallel"
+  [ptlist]
+  (let [[p1 p2 p3 p4] ptlist
+        [a1r a2] [(reverse (map - p1 p2)) (map - p3 p4)]
+        b (map - p3 p1)
+        determinant (apply - (map * a1r a2))
+        avg (average ptlist)]
+    (if (> (Math/abs determinant) 0.000001)
+      (let [intersect (map #(- %1 (* %2 (/ (apply - (map * a1r b)) determinant))) p3 a2)
+            pathlength (reduce + (map euclidean-squared ptlist (rest ptlist)) )]
+        (if (< (euclidean-squared intersect avg) pathlength)
+          intersect avg))
+      avg)))
 
 
 (defn- get-triples [ptlist]
@@ -125,19 +146,19 @@
                           slopes (next (cycle slopes))) ;; alpha: angle between slopes of curves
 
           ends (apply concat (map (partial take-nth 3) curves))
-          num-sim-curves (count (filter (partial > 0.2)
+          num-sim-slopes (count (filter (partial > 0.2)
                                         (map (partial apply euclidean-squared)
                                              (combinations (map #(normalize (map - (average ends) %))
                                                                 ends)
                                                            2))))]
       (and (some #(< 0 % 1) cos-alphas)
-           (= 3 num-sim-curves)
+           (= 3 num-sim-slopes)
            ))))
 
 
 (defn first-strategy-rec [curve-map]
   (let [curve-enums (vec (keys curve-map))
-        curves (mapv k-means-reduce (vals curve-map))
+        curves (vec (vals curve-map))
         references (mapv intersection curves)
 
         triples (get-triples references)
@@ -179,7 +200,7 @@
 
 (defn second-strategy [curve-map max-dist]
   (let [curve-enums (vec (keys curve-map))
-        curves (mapv k-means-reduce (vals curve-map))
+        curves (vec (vals curve-map))
         references (mapv intersection curves)
         triples (get-triples2 (pairwise-dist references) max-dist)
         wedges (filter #(valid? (second %))
@@ -203,20 +224,9 @@
   "Returns modified wedges and 2 lists: path keys and line keys of lines used"
   [wedges line-map]
   (let [line-enums (vec (keys line-map))
-        lines (mapv #(vector (first %) (furthest-from-first %)) (vals line-map))]))
+        lines (map #(vector (first %) (furthest-from-first %)) (vals line-map))
+        corners (apply concat (map (partial map first) wedges))
+        l-map (zipmap (keys line-map) lines)]
+    (reduce #(update-in %1 [%2] identity) l-map (keys l-map))
 
-(defn- whiten [data] (map #(map - % (average data)) data))
-
-;;(defn whiten2 [v] (map #(/ % (euclidean-distance [0 0] v)) v))
-;;(defn whiten2 [data] (let [dataT (apply mapv data) minimum (map (partial apply min) dataT) maximum (map (partial apply max) dataT)] (map (partial map #(- % minimum)) data)))
-
-(defn classify-paths ;; in core? TODO: improve; threshold varies
-  "Uses second singular value of data lists to distiguish lines and curves.
-   Returns [curve-map line-map]"
-  [paths threshold]
-  ;; (map (partial apply mapv vector))
-  (vals (apply sorted-set (group-by (comp (partial > threshold) second :S
-                                          decomp-svd matrix whiten second) paths)))
-  )
-
-;(defn f [paths] (take 5 (map (comp :S decomp-svd matrix whiten second) paths)))
+    ))
