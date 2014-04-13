@@ -15,8 +15,8 @@
 
 (defn- pairwise-dist
   "Returns dim(list1) x dim(list2) matrix"
-  [ptlist]
-  (map #(map (partial euclidean-squared %) ptlist) ptlist))
+  [ptlist1 ptlist2]
+  (map #(map (partial euclidean-squared %) ptlist2) ptlist1))
 
 (defn- average [ptlist]
   (if (< (count ptlist) 1) nil
@@ -24,8 +24,12 @@
 
 (defn- whiten [data] (map #(map - % (average data)) data))
 
+(defn- normalize [v] (map #(/ % (euclidean-distance [0 0] v)) v))
+
 (defn- furthest-from-first [ptlist]
   (apply max-key #(euclidean-squared (first ptlist) %) ptlist))
+
+(defn- dot-product [a b] (reduce + (map * a b)) )
 
 
 ;;
@@ -104,7 +108,7 @@
             (map keys
                  (map #(take 3 (sort-by last
                                         (zipmap (range (count ptlist)) %)))
-                           (pairwise-dist ptlist))))]
+                           (pairwise-dist ptlist ptlist))))]
     (map (comp vec first)
          (filter #(= 3 (second %))
                  (frequencies (map set (three-closest-pts ptlist)))))))
@@ -137,10 +141,8 @@
 
 
 (defn- valid? [curves]
-  (letfn [(normalize [v] (map #(/ % (euclidean-distance [0 0] v)) v))
-          (get-slopes [p1 p2 p3 p4]
-            (map normalize [(map - p1 p2) (map - p4 p3)]))
-          (dot-product [a b] (reduce + (map * a b)) )]
+  (letfn [(get-slopes [p1 p2 p3 p4]
+            (map normalize [(map - p1 p2) (map - p4 p3)]))]
     (let [slopes (map (partial apply get-slopes) curves)
           cos-alphas (map #(dot-product (last %1) (first %2))
                           slopes (next (cycle slopes))) ;; alpha: angle between slopes of curves
@@ -192,7 +194,7 @@
   (letfn [(closest-inds [n dists]
             (sort (keys (filter (fn [[k v]] (< v max-dist))
                                 (sort-by last (zipmap (range n) dists))))))
-          (make-ind-pairs [l]
+          (make-ind-pairs [l] ;; nicht verwendet?
             (map #(set [(first l) %]) (rest l)))]
     (set (apply concat (map (comp (fn [l] (combinations l 3))
                                   (partial closest-inds (count (first dist-matrix))))
@@ -202,7 +204,7 @@
   (let [curve-enums (vec (keys curve-map))
         curves (vec (vals curve-map))
         references (mapv intersection curves)
-        triples (get-triples2 (pairwise-dist references) max-dist)
+        triples (get-triples2 (pairwise-dist references references) max-dist)
         wedges (filter #(valid? (second %))
                        (zipmap triples
                                (map (partial flip-curves curves)
@@ -219,14 +221,39 @@
     [(concat wedges2 wedges) (union used-keys keys2)]
     ))
 
-
 (defn add-extension
   "Returns modified wedges and 2 lists: path keys and line keys of lines used"
   [wedges line-map]
-  (let [line-enums (vec (keys line-map))
-        lines (map #(vector (first %) (furthest-from-first %)) (vals line-map))
-        corners (apply concat (map (partial map first) wedges))
-        l-map (zipmap (keys line-map) lines)]
-    (reduce #(update-in %1 [%2] identity) l-map (keys l-map))
+  (let [corners (mapv (partial mapv first) wedges)
+        corner-dir-vecs (apply concat (map (comp (partial map normalize)
+                                                 (partial take-nth 4)
+                                                 whiten
+                                                 (partial apply concat)) wedges));; from center to corner
+        c-corners (apply concat corners)
+        c-lines (vec (apply concat (vals line-map)))
+        line-dirs (mapv #(normalize (map - (second %) (first %))) (vals line-map))
+        line-dir-vecs (vec (interleave line-dirs (mapv (partial mapv unchecked-negate) line-dirs)))
+        poss-ext (mapv #(vec (keys (sort-by last (filter (comp (partial > 1) second) ;; am genauestes: strokewidth
+                                                        (zipmap (range (count %)) %)))))
+                      (pairwise-dist c-corners c-lines)) ;; 59
 
-    ))
+        [used-keys new-corners] (apply mapv vector
+                                       (mapv #(loop [i 0]
+                                               (if (< i (count %3))
+                                                 (if (< 0.6 (dot-product %2 (get line-dir-vecs (get %3 i))))
+                                                   (let [ind (get %3 i)
+                                                        ;; x (print %1 %2)
+                                                          a (print (dot-product %2 (get line-dir-vecs ind)))
+                                                          b (print " ")
+                                                         ]
+                                                      [(get (vec (keys line-map)) (quot ind 2))
+                                                       (get c-lines (if (even? ind) (inc ind) (dec ind)))])
+                                                    (recur (inc i)))
+                                                  [nil %1]))
+                                             c-corners corner-dir-vecs poss-ext))
+
+        ]
+    [(mapv #(mapv concat %2 %1 (next (cycle %2)))
+          (mapv (partial mapv (comp butlast rest)) wedges)
+          (mapv (partial mapv vector) (partition 3 new-corners)))
+     (set (filter identity used-keys))]))
