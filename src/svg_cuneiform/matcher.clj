@@ -223,7 +223,7 @@
 
 (defn add-extension
   "Returns modified wedges and 2 lists: path keys and line keys of lines used"
-  [wedges line-map]
+  [wedges line-map max-dist arccos-allowed-angle]
   (let [corners (mapv (partial mapv first) wedges)
         corner-dir-vecs (apply concat (map (comp (partial map normalize)
                                                  (partial take-nth 4)
@@ -233,18 +233,19 @@
         c-lines (vec (apply concat (vals line-map)))
         line-dirs (mapv #(normalize (map - (second %) (first %))) (vals line-map))
         line-dir-vecs (vec (interleave line-dirs (mapv (partial mapv unchecked-negate) line-dirs)))
-        poss-ext (mapv #(vec (keys (sort-by last (filter (comp (partial > 1) second) ;; am genauestes: strokewidth
+        poss-ext (mapv #(vec (keys (sort-by last (filter (comp (partial > max-dist) second)
                                                         (zipmap (range (count %)) %)))))
-                      (pairwise-dist c-corners c-lines)) ;; 59
+                      (pairwise-dist c-corners c-lines))
 
         [used-keys new-corners] (apply mapv vector
                                        (mapv #(loop [i 0]
                                                (if (< i (count %3))
-                                                 (if (< 0.6 (dot-product %2 (get line-dir-vecs (get %3 i))))
+                                                 (if (< arccos-allowed-angle
+                                                        (dot-product %2 (get line-dir-vecs (get %3 i))))
                                                    (let [ind (get %3 i)
                                                         ;; x (print %1 %2)
-                                                          a (print (dot-product %2 (get line-dir-vecs ind)))
-                                                          b (print " ")
+                                                        ;;  a (print (dot-product %2 (get line-dir-vecs ind)))
+                                                        ;;  b (print " ")
                                                          ]
                                                       [(get (vec (keys line-map)) (quot ind 2))
                                                        (get c-lines (if (even? ind) (inc ind) (dec ind)))])
