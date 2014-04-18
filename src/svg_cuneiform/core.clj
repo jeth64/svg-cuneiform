@@ -1,5 +1,7 @@
 (ns svg-cuneiform.core
-  (:require [svg-cuneiform.matcher :refer :all]
+  (:require [svg-cuneiform.matcher :refer [classify-and-reduce find-wedges add-extension
+                                           reference ;; loeschen nach testen
+                                           ]]
             [svg-cuneiform.file :refer
              [get-svg get-translations get-paths get-lines
               update-and-save update-file]]))
@@ -20,13 +22,13 @@
         a (print [(count curve-map) (count line-map)])
 
         [wedges used-keys] (find-wedges curve-map)
-        [wedges2 path-keys] (add-extension wedges lines 0.7 0.7)
+        ;;[wedges2 path-keys] (add-extension wedges lines 0.7 0.7)
         ;;c (print (add-extension wedges line-map))
 
-        new-paths (concat ;; wedges2
-                          ;;(map #(vector (cons (map (partial + 0.5) %) (repeat 3 %))) (mapv intersection (vals curve-map))) ;; Punkte
+        new-paths (concat wedges
+                          ;;(map #(vector (cons (map (partial + 0.5) %) (repeat 3 %))) (mapv reference (vals curve-map))) ;; Punkte
                           ;;  (map #(vector (take 4 (cycle %))) (vals lines)) ;; Linien
-                           (map vector (vals curve-map)) ;; kurven
+                          ;; (map vector (vals curve-map)) ;; kurven
                           )
         paths-to-delete used-keys
         lines-to-delete []
