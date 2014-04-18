@@ -5,9 +5,6 @@
             [clojure.xml :as xml]))
 
 
-(def style {:fill "none" :stroke "blue" :stroke-width 0.5})
-
-
 ;;
 ;; Zipper functionalities for xml map manipulation
 ;;
@@ -118,7 +115,7 @@
 ;; Higher-level functions for xml map transformations
 ;;
 
-(defn- create-wedge-nodes [paths-list]
+(defn- create-wedge-nodes [paths-list style]
   (letfn [(wedge-node [nr pathstring]
             (list :path (merge style {:d pathstring :id (str "wedge" nr)})))]
       (map wedge-node (range) (map matrix2path paths-list))))
@@ -142,20 +139,19 @@
     (-> file
         (remove-parent certain-path?)
         (remove-nodes certain-line?)
-        (remove-nodes empty-group?))
-    ))
+        (remove-nodes empty-group?))))
 
 
 (defn update-file
   "Create path nodes for wedges, delete nodes plus parent group of used nodes
    and one layer of empty groups. (input 'paths': nx3x4x2-matrix, in right order)"
-  [file layer-id paths path-ids line-ids]
-  (let [nodes (create-wedge-nodes paths)]
+  [file layer-id paths path-ids line-ids style]
+  (let [nodes (create-wedge-nodes paths style)]
     (-> file
         (zip/seq-zip)
         (add-wedge-nodes layer-id nodes)
         (clean-file (set (flatten path-ids)) (set (flatten line-ids))))))
 
 (defn update-and-save
-  [file layer-id paths path-ids line-ids outfile]
-  (spit outfile (emit (update-file file layer-id paths path-ids line-ids))))
+  [file layer-id paths path-ids line-ids outfile style]
+  (spit outfile (emit (update-file file layer-id paths path-ids line-ids style))))
