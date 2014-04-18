@@ -3,97 +3,9 @@
             [clojure.zip :as zip]
             [clojure.set :refer [union]]
             [clojure.math.combinatorics :refer [permutations selections combinations]]
-            [incanter [stats :refer :all]
-             [core :refer [matrix decomp-svd solve-quadratic]]]
+            [incanter [core :refer [matrix decomp-svd solve-quadratic]]]
+            [svg-cuneiform.math :refer :all]
             ))
-
-;;
-;; Mathematical functions
-;;
-
-(defn round [s n]
-  (.setScale (bigdec n) s java.math.RoundingMode/HALF_EVEN))
-
-(defn- euclidean-squared [p1 p2]
-  (reduce #(+ %1 (* %2 %2)) 0 (map - p1 p2)))
-
-(defn- pairwise-dist
-  "Returns dim(list1) x dim(list2) matrix"
-  [ptlist1 ptlist2]
-  (map #(map (partial euclidean-squared %) ptlist2) ptlist1))
-
-(defn- average [ptlist]
-  (if (< (count ptlist) 1) nil
-      (map #(/ % (count ptlist)) (apply map + ptlist))))
-
-(defn- whiten [data] (map #(map - % (average data)) data))
-
-(defn- normalize [v] (map #(/ % (euclidean-distance [0 0] v)) v))
-
-(defn- dot-product [a b] (reduce + (map * a b)) )
-
-(defn- transpose [m] (apply mapv vector m))
-
-(defn- asinh [x] (Math/log (+ x (Math/sqrt (inc (* x x))))))
-
-(defn- acosh [x] (Math/log (+ x (Math/sqrt (dec (* x x))))))
-
-(defn- polynomial [coeffs x] (reduce #(+ %2 (* %1 x)) coeffs))
-
-
-(defn- furthest-from-first [ptlist]
-  (apply max-key #(euclidean-squared (first ptlist) %) ptlist))
-
-(defn- cubic-zeros [A B C D] ;; highest order first
-  (let [;; calculate coefficients for depressed form
-        [a b c] (map #(/ % A) [B C D])
-        p (- b (/ (* a a) 3))
-        q (+ (/ (* 2 a a a) 27) (/ (* a b) -3) c)
-        z (Math/sqrt (/ (Math/abs p) 3))
-        ] ;; letzter fall funktioniert, aber beachte 2 statt -2, siehe engl. fassung
-    (cond
-     (= p 0) (if (= q 0)
-               [(/ a -3)]
-               [(/ (- (Math/cbrt (- (* a a a) (* 27 c))) a) a)])
-     (> p 0) [(+ (* -2 z
-                     (Math/sinh (/ (asinh (/ (* 3 q) 2 p z)) 3)))
-                  (/ a -3))]
-     :else (if (< (* -27 q q) (* 4 p p p))
-             [(+ (* -2 z (Math/signum q)
-                     (Math/cosh (/ (acosh (/ (* 3 (Math/abs q)) -2 p z)) 3)))
-                  (/ a -3))]
-             (mapv #(+ (* 2 z
-                          (Math/cos (/ (- (Math/acos (/ (* 3 q) 2 p z))
-                                          (* % 2 Math/PI)) 3)))
-                      (/ a -3))
-                  (range 3))))))
-
-
-(cubic-zeros 1 0 6 -20);; 2 D>0
-(cubic-zeros 1 -3 -144 432) ;;-12 3 12 D<0
-(map (partial polynomial [1 -3 -144 432])
-     (cubic-zeros 1 -3 -144 432)) ;; sollte [0 0 0] sein
-
-
-(defn bezier-coeffs [v]
-  [(apply + (map * [-1 3 -3 1] v))
-   (apply + (map * [3 -6 3] v))
-   (apply + (map * [-3 3] v))
-   (first v)])
-
-(bezier-coeffs [1 2 3 4])
-
-(defn curve-line-intersection [curve [[lx1 ly1] [lx2 ly2]]]
-  (let [[[ax bx cx dx] [ay by cy dy]] (map bezier-coeffs (transpose curve))
-        A (+ (* (- ly2 ly1) ax) (* (- lx1 lx2) ay))
-        B (+ (* (- ly2 ly1) bx) (* (- lx1 lx2) by))
-        C (+ (* (- ly2 ly1) cx) (* (- lx1 lx2) cy))
-        D (+ (* (- ly2 ly1) (- dx lx1)) (* (- lx1 lx2) (- dy ly1)))
-        ;;ts (filter #(< -1 % 2))
-        ts (cubic-zeros A B C D)
-        ]
-    (transpose [(map #(polynomial [ax bx cx dx] %) ts)
-                (map #(polynomial [ay by cy dy] %) ts)])))
 
 ;;
 ;; Curve formatting
@@ -210,23 +122,6 @@
                              curves (next (cycle lines)) (next (next (cycle lines))))
         [dists1 dists2] (transpose isec-lend-dists)]
     (every? (partial > 1) (map min (next (cycle dists2)) dists1))))
-
-
-(check-proximity curve2)
-
-
-(def curve1 [[[383.92056 453.34375] [377.53581 452.00500] [373.95731 451.44675] [371.52456 451.35675]]
-             [[371.41426 451.42115] [372.34476 450.95415] [372.59376 449.64265] [373.00726 448.39615]]
-             [[372.96506 448.71505] [372.96756 450.97005] [375.81506 451.59805] [377.87406 452.35705]]])
-
-(def curve2 [[[354.40836 466.13695] [354.64336 469.36345] [359.00286 470.21095] [361.80436 470.90795]]
-             [[365.75076 471.21385] [361.22076 470.38635] [356.73626 469.92185] [352.43476 470.41185]]
-             [[352.32436 470.47635] [353.73536 469.51085] [354.13786 467.83185] [354.42336 465.88035]]])
-
-(def curve3 [[[313.7412 415.6631] [315.4417 414.8801] [316.1377 413.34660] [316.5692 411.2061]]
-             [[316.5332 411.3232] [316.9202 412.8082] [319.1012 414.40695] [326.6682 415.5992]]
-             [[332.0328 415.7047] [325.8158 415.0852] [319.6908 414.85520] [313.8008 415.6377]]])
-
 
 (defn- valid? [curves]
   (letfn [(get-slopes [p1 p2 p3 p4]
