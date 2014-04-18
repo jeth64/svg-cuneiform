@@ -94,11 +94,10 @@
              translations))
 
 
-
 (defn get-paths [file layer-id translations]
   ;(id-ptlist-map file layer-id :path #(parse-path (:d %)) translations)
   (translate (reduce into {} (map #(hash-map (:id (second %)) (parse-path (:d (second %))))
-                              (find-paths (find-layer (zip/seq-zip file) "cuneiforms"))))
+                              (find-paths (find-layer (zip/seq-zip file) layer-id))))
              translations))
 
 
