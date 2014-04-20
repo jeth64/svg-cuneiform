@@ -8,37 +8,101 @@
 
 
 
+(def test-config2
+  {:filename "test/svg_cuneiform/images/2-1.svg"
+   :layer-id "cuneiforms"
+   :outfile "test/svg_cuneiform/images/out.svg"
+   ;; parameters
+   :curve-line-threshold 0.0
+   :extension-dist 0.7
+   :cos-allowed-angle 0.7
+   ;; style attributes
+   :stroke-width 0.5
+   :color "blue"
+   })
+
+(def test-config3
+  {:filename "test/svg_cuneiform/images/3-1.svg"
+   :layer-id "cuneiforms"
+   :outfile "test/svg_cuneiform/images/out.svg"
+   ;; parameters
+   :curve-line-threshold 1.0
+   :extension-dist 1.0
+   :cos-allowed-angle 0.6
+   ;; style attributes
+   :stroke-width 0.5
+   :color "blue"
+   })
+
+(def config1
+  {:filename "test/svg_cuneiform/images/VAT_10833-SeiteB_HPSchaudig.svg"
+   :layer-id "g20"
+   :outfile "test/svg_cuneiform/images/out.svg"
+   :curve-line-threshold 0.0
+   :extension-dist 0.7
+   :cos-allowed-angle 0.7
+   :stroke-width 0.5
+   :color "blue"
+   })
+(def config2
+  {:filename "test/svg_cuneiform/images/VAT_09671_Rs_SJakob.svg"
+   :layer-id "Autographie"
+   :outfile "test/svg_cuneiform/images/out.svg"
+   :curve-line-threshold 0.0
+   :extension-dist 0.7
+   :cos-allowed-angle 0.7
+   :stroke-width 0.5
+   :color "blue"
+   })
+(def config3
+  {:filename "test/svg_cuneiform/images/VAT_10908_Vs.svg"
+   :layer-id "Kopie"
+   :outfile "test/svg_cuneiform/images/out.svg"
+   :curve-line-threshold 0.0
+   :extension-dist 0.7
+   :cos-allowed-angle 0.7
+   :stroke-width 0.5
+   :color "blue"
+   })
+
+(def test-config1
+  {:filename "test/svg_cuneiform/images/1-1.svg"
+   :layer-id "cuneiforms"
+   :outfile "test/svg_cuneiform/images/out.svg"
+   ;; parameters
+   ;; - for classification
+   :curve-line-threshold 0.0
+   ;; - for finding extensions
+   :extension-dist 0.7
+   :cos-allowed-angle 0.3
+   ;; style attributes
+   :stroke-width 0.5
+   :color "blue"
+   })
 
 ;;(time (main))
 (time ;; defn main []
-  (let [[layer-id filename]
-        ["cuneiforms" "test/svg_cuneiform/images/2-1.svg"]
-        ;; ["g20" "test/svg_cuneiform/images/VAT_10833-SeiteB_HPSchaudig.svg"]
-        style {:fill "none" :stroke "blue" :stroke-width 0.5}
-        file (get-svg filename)
-        outfile "test/svg_cuneiform/images/out.svg"
-        translations (get-translations file layer-id)
-        paths (get-paths file layer-id translations)
-        [curve-map line-map] (classify-and-reduce paths 0.01)
-        lines (merge line-map (get-lines file layer-id translations))
+ (let [config test-config2
+       style {:fill "none" :stroke (config :color) :stroke-width (config :stroke-width)}
+       file (get-svg (config :filename))
+       translations (get-translations file (config :layer-id))
+       paths (get-paths file (config :layer-id) translations)
+       [curve-map line-map] (classify-and-reduce paths (config :curve-line-threshold))
+       lines (merge line-map (get-lines file (config :layer-id) translations))
 
-        a (print [(count curve-map) (count line-map)])
+       a (print [(count curve-map) (count line-map)])
 
-        [wedges used-keys] (find-wedges curve-map)
-        [wedges2 path-keys] (add-extension wedges lines 0.7 0.7)
-        ;;c (print (add-extension wedges line-map))
+       [wedges used-keys] (find-wedges curve-map)
+       [wedges2 path-keys] (add-extension wedges lines (config :extension-dist) (config :cos-allowed-angle))
+       ;;c (print (add-extension wedges line-map))
 
-        new-paths (concat wedges2
-                          ;;(map #(vector (cons (map (partial + 0.5) %) (repeat 3 %))) (mapv reference (vals curve-map))) ;; Punkte
-                          ;;  (map #(vector (take 4 (cycle %))) (vals lines)) ;; Linien
-                          ;; (map vector (vals curve-map)) ;; kurven
+       new-paths (concat wedges2
+                         ;; (map #(vector (cons (map (partial + 0.5) %) (repeat 3 %))) (mapv reference (vals curve-map))) ;; Punkte
+                         ;; (map #(vector (take 4 (cycle %))) (vals lines)) ;; Linien
+                         ;; (map vector (vals curve-map)) ;; kurven
                           )
-        paths-to-delete used-keys
-        lines-to-delete []
-        ]
-
-    (update-and-save file layer-id new-paths paths-to-delete lines-to-delete outfile style)
-
-    ;(f (get-paths file layer-id translations))
-
-    ))
+       paths-to-delete used-keys
+       lines-to-delete []
+       ]
+   (update-and-save file (config :layer-id) new-paths paths-to-delete lines-to-delete (config :outfile) style)
+   ))

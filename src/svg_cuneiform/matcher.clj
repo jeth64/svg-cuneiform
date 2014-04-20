@@ -115,13 +115,14 @@
 
 (defn check-proximity [curves]
   (let [lines (map #(take-nth 3 %) curves)
-        isec-lend-dists (map #(vector (apply min (map (partial euclidean-distance (first %2))
+        isec-lend-dists (map #(vector (apply min (map (partial euclidean-squared (first %2))
                                                       (curve-line-intersection %1 %2)))
-                                      (apply min (map (partial euclidean-distance (last %3))
+                                      (apply min (map (partial euclidean-squared (last %3))
                                                       (curve-line-intersection %1 %3))))
                              curves (next (cycle lines)) (next (next (cycle lines))))
         [dists1 dists2] (transpose isec-lend-dists)]
     (every? (partial > 1) (map min (next (cycle dists2)) dists1))))
+
 
 (defn- valid? [curves]
   (letfn [(get-slopes [p1 p2 p3 p4]
@@ -129,15 +130,15 @@
     (let [slopes (map (partial apply get-slopes) curves)
           cos-alphas (map #(dot-product (last %1) (first %2))
                           slopes (next (cycle slopes))) ;; alpha: angle between slopes of curves
-
           ends (apply concat (map (partial take-nth 3) curves))
-          num-sim-slopes (count (filter (partial > 0.2)
-                                        (map (partial apply euclidean-squared)
-                                             (combinations (map #(normalize (map - (average ends) %))
-                                                                ends)
-                                                           2))))]
-      (and (some #(< 0 % 1) cos-alphas)
-           (= 3 num-sim-slopes)
+          b (map (partial apply euclidean-squared)
+                 (combinations (map #(normalize (map - (average ends) %)) ends) 2))
+          num-sim-slopes (count (filter (partial > 0.2) b))
+
+        ;;  a (if c (print b "=> num-sim-slopes: " num-sim-slopes "proximity: " c) nil)
+          ]
+      (and ;;(some #(< 0 % 1) cos-alphas)
+          ;; (= 3 num-sim-slopes)
            (check-proximity curves)
            ))))
 
@@ -177,9 +178,7 @@
 (defn- get-triples2 [dist-matrix max-dist]
   (letfn [(closest-inds [n dists]
             (sort (keys (filter (fn [[k v]] (< v max-dist))
-                                (sort-by last (zipmap (range n) dists))))))
-          (make-ind-pairs [l] ;; nicht verwendet?
-            (map #(set [(first l) %]) (rest l)))]
+                                (sort-by last (zipmap (range n) dists))))))]
     (set (apply concat (map (comp (fn [l] (combinations l 3))
                                   (partial closest-inds (count (first dist-matrix))))
                             dist-matrix)))))
@@ -191,8 +190,7 @@
         triples (get-triples2 (pairwise-dist references references) max-dist)
         wedges (filter #(valid? (second %))
                        (zipmap triples
-                               (map (partial flip-curves curves)
-                                    triples)))
+                               (map (partial flip-curves curves) triples)))
         used-keys (flatten (keys wedges))
         paths (map #(merge-ends (second %) (replace references (first %)))
                    wedges)]
@@ -226,11 +224,7 @@
                                                (if (< i (count %3))
                                                  (if (< arccos-allowed-angle
                                                         (dot-product %2 (get line-dir-vecs (get %3 i))))
-                                                   (let [ind (get %3 i)
-                                                        ;; x (print %1 %2)
-                                                        ;;  a (print (dot-product %2 (get line-dir-vecs ind)))
-                                                        ;;  b (print " ")
-                                                         ]
+                                                   (let [ind (get %3 i)]
                                                       [(get (vec (keys line-map)) (quot ind 2))
                                                        (get c-lines (if (even? ind) (inc ind) (dec ind)))])
                                                     (recur (inc i)))
