@@ -113,7 +113,10 @@
             (vec curves) (range 3))))
 
 
-(defn check-proximity [curves]
+(defn- valid?
+  "For each merging point, check if one curve ends on the other
+   - max-dist: maximum distance between one curve end and the other curve"
+  [curves max-dist]
   (let [lines (map #(take-nth 3 %) curves)
         isec-lend-dists (map #(vector (apply min (map (partial euclidean-squared (first %2))
                                                       (curve-line-intersection %1 %2)))
@@ -121,35 +124,15 @@
                                                       (curve-line-intersection %1 %3))))
                              curves (next (cycle lines)) (next (next (cycle lines))))
         [dists1 dists2] (transpose isec-lend-dists)]
-    (every? (partial > 1) (map min (next (cycle dists2)) dists1))))
+    (every? (partial > max-dist) (map min (next (cycle dists2)) dists1))))
 
 
-(defn- valid? [curves]
-  (letfn [(get-slopes [p1 p2 p3 p4]
-            (map normalize [(map - p1 p2) (map - p4 p3)]))]
-    (let [slopes (map (partial apply get-slopes) curves)
-          cos-alphas (map #(dot-product (last %1) (first %2))
-                          slopes (next (cycle slopes))) ;; alpha: angle between slopes of curves
-          ends (apply concat (map (partial take-nth 3) curves))
-          b (map (partial apply euclidean-squared)
-                 (combinations (map #(normalize (map - (average ends) %)) ends) 2))
-          num-sim-slopes (count (filter (partial > 0.2) b))
-
-        ;;  a (if c (print b "=> num-sim-slopes: " num-sim-slopes "proximity: " c) nil)
-          ]
-      (and ;;(some #(< 0 % 1) cos-alphas)
-          ;; (= 3 num-sim-slopes)
-           (check-proximity curves)
-           ))))
-
-
-(defn first-strategy-rec [curve-map]
+(defn- first-strategy-rec [curve-map max-merge-dist]
   (let [curve-enums (vec (keys curve-map))
         curves (vec (vals curve-map))
         references (mapv reference curves)
-
         triples (get-triples references)
-        wedges (filter #(valid? (second %))
+        wedges (filter #(valid? (second %) max-merge-dist)
                        (zipmap triples
                                (map (partial flip-curves curves)
                                     triples)))
@@ -165,9 +148,9 @@
   "Find 3 closest curves from each curve including itself.
    If there are 3 identical such triples, check if they can be curves
    and merge them into 1 polybezier"
-  [curve-map]
+  [curve-map max-merge-dist]
   (loop [curves curve-map wedges [] used-keys #{} max-dist 0]
-    (let [[w keys new-max] (first-strategy-rec curves)]
+    (let [[w keys new-max] (first-strategy-rec curves max-merge-dist)]
       (if (= 0 (count keys))
         [wedges used-keys max-dist curves]
         (recur (filter #(not (contains? keys (key %))) curves)
@@ -183,12 +166,12 @@
                                   (partial closest-inds (count (first dist-matrix))))
                             dist-matrix)))))
 
-(defn second-strategy [curve-map max-dist]
+(defn second-strategy [curve-map max-dist max-merge-dist]
   (let [curve-enums (vec (keys curve-map))
         curves (vec (vals curve-map))
         references (mapv reference curves)
         triples (get-triples2 (pairwise-dist references references) max-dist)
-        wedges (filter #(valid? (second %))
+        wedges (filter #(valid? (second %) max-merge-dist)
                        (zipmap triples
                                (map (partial flip-curves curves) triples)))
         used-keys (flatten (keys wedges))
@@ -197,9 +180,9 @@
     [paths (set (replace curve-enums used-keys))]))
 
 
-(defn find-wedges [curve-map]
-  (let [[wedges used-keys max-dist rest-curves] (first-strategy curve-map)
-        [wedges2 keys2] (second-strategy rest-curves max-dist)]
+(defn find-wedges [curve-map max-merge-dist]
+  (let [[wedges used-keys max-dist rest-curves] (first-strategy curve-map max-merge-dist)
+        [wedges2 keys2] (second-strategy rest-curves max-dist max-merge-dist)]
     [(concat wedges2 wedges) (union used-keys keys2)]
     ))
 
@@ -207,31 +190,33 @@
 (defn add-extension
   "Returns modified wedges and 2 lists: path keys and line keys of lines used"
   [wedges line-map max-dist arccos-allowed-angle]
-  (let [corners (mapv (partial mapv first) wedges)
-        corner-dir-vecs (apply concat (map (comp (partial map normalize)
-                                                 (partial take-nth 4)
-                                                 whiten
-                                                 (partial apply concat)) wedges));; from center to corner
-        c-corners (apply concat corners)
-        c-lines (vec (apply concat (vals line-map)))
-        line-dirs (mapv #(normalize (map - (second %) (first %))) (vals line-map))
-        line-dir-vecs (vec (interleave line-dirs (mapv (partial mapv unchecked-negate) line-dirs)))
-        poss-ext (mapv #(vec (keys (sort-by last (filter (comp (partial > max-dist) second)
-                                                        (zipmap (range (count %)) %)))))
-                      (pairwise-dist c-corners c-lines))
-        [used-keys new-corners] (apply mapv vector
-                                       (mapv #(loop [i 0]
-                                               (if (< i (count %3))
-                                                 (if (< arccos-allowed-angle
-                                                        (dot-product %2 (get line-dir-vecs (get %3 i))))
-                                                   (let [ind (get %3 i)]
-                                                      [(get (vec (keys line-map)) (quot ind 2))
-                                                       (get c-lines (if (even? ind) (inc ind) (dec ind)))])
-                                                    (recur (inc i)))
-                                                  [nil %1]))
-                                             c-corners corner-dir-vecs poss-ext))
-        ]
-    [(mapv #(mapv concat %2 %1 (next (cycle %2)))
-          (mapv (partial mapv (comp butlast rest)) wedges)
-          (mapv (partial mapv vector) (partition 3 new-corners)))
-     (set (filter identity used-keys))]))
+  (if (= 0 (count wedges))
+    []
+    (let [corners (mapv (partial mapv first) wedges)
+          corner-dir-vecs (apply concat (map (comp (partial map normalize)
+                                                   (partial take-nth 4)
+                                                   whiten
+                                                   (partial apply concat)) wedges));; from center to corner
+          c-corners (apply concat corners)
+          c-lines (vec (apply concat (vals line-map)))
+          line-dirs (mapv #(normalize (map - (second %) (first %))) (vals line-map))
+          line-dir-vecs (vec (interleave line-dirs (mapv (partial mapv unchecked-negate) line-dirs)))
+          poss-ext (mapv #(vec (keys (sort-by last (filter (comp (partial > max-dist) second)
+                                                           (zipmap (range (count %)) %)))))
+                         (pairwise-dist c-corners c-lines))
+          [used-keys new-corners] (apply mapv vector
+                                         (mapv #(loop [i 0]
+                                                  (if (< i (count %3))
+                                                    (if (< arccos-allowed-angle
+                                                           (dot-product %2 (get line-dir-vecs (get %3 i))))
+                                                         (let [ind (get %3 i)]
+                                                           [(get (vec (keys line-map)) (quot ind 2))
+                                                            (get c-lines (if (even? ind) (inc ind) (dec ind)))])
+                                                         (recur (inc i)))
+                                                       [nil %1]))
+                                                  c-corners corner-dir-vecs poss-ext))
+             ]
+         [(mapv #(mapv concat %2 %1 (next (cycle %2)))
+                (mapv (partial mapv (comp butlast rest)) wedges)
+                (mapv (partial mapv vector) (partition 3 new-corners)))
+          (set (filter identity used-keys))])))
