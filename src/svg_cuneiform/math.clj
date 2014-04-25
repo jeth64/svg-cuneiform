@@ -1,5 +1,5 @@
 (ns svg-cuneiform.math
-  (:require [incanter [stats :refer euclidean-distance]]))
+  (:require [incanter [stats :refer [euclidean-distance]]]))
 
 
 ;;
