@@ -11,6 +11,8 @@
    :layer-id "cuneiforms"
    :outfile "test/svg_cuneiform/images/out.svg"
    ;; parameter
+   ;; - for valiation check
+   :max-merge-dist 1.0
    ;; - for classification
    :curve-line-threshold 0.0 ;; no curves as lines
    ;; - for finding extensions
@@ -48,6 +50,9 @@
   {:filename "test/svg_cuneiform/images/VAT_10908_Vs.svg"
    :layer-id "Kopie"})
 
+(def config4
+  {:filename "test/svg_cuneiform/images/VAT_10686+Obv_HPSchaudig.svg"
+   :layer-id "g20"})
 
 ;;(time (main))
 (time ;; defn main []
