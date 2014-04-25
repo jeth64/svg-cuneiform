@@ -1,0 +1,167 @@
+;;(defn regression-reduce [ptlist] ptlist)
+
+;(def data (to-matrix (get-dataset :filip)))
+;(def y (sel data :cols 0))
+;(def x (sweep (sel data :cols 1)))
+
+(def pts (get (get-paths file layer-id translations) "path2536"))
+(def y (map first pts))
+(def x (map second pts))
+
+(def plot (scatter-plot x y))
+(view plot)
+
+
+
+;; the following line of code creates a matrix of the polynomial terms x, x^2, x^3
+(def X (reduce bind-columns (for [i (range 1 4)] (pow x i))))
+
+;; run the regression
+(def lm (linear-model y X))
+(print lm)
+(:coefs lm)
+(add-points plot x (map (partial + (last (:residuals lm))) (:fitted lm)))
+
+(view plot)
+
+(print pts)
+
+
+;; unused validation checks
+
+(defn get-slopes [p1 p2 p3 p4]
+            (map normalize [(map - p1 p2) (map - p4 p3)]))
+
+(defn  check-end-slopes1 [curves]
+  (let [slopes (map (partial apply get-slopes) curves)
+        cos-alphas (map #(dot-product (last %1) (first %2))
+                   slopes (next (cycle slopes))) ;; alpha: angle between slopes of curves
+        ]
+        (some #(< 0 % 1) cos-alphas)))
+
+(defn check-end-slopes2 [curves]
+      (let [ends (apply concat (map (partial take-nth 3) curves))
+            num-sim-slopes (count (filter (partial > 0.2) (map (partial apply euclidean-squared)
+                                  (combinations (map #(normalize (map - (average ends) %)) ends) 2))))]
+     (= 3 num-sim-slopes)))
+
+
+;; used validation check
+
+(defn check-proximity [curves]
+  (let [lines (map #(take-nth 3 %) curves)
+        isec-lend-dists (map #(vector (apply min (map (partial euclidean-squared (first %2))
+                                                      (curve-line-intersection %1 %2)))
+                                      (apply min (map (partial euclidean-squared (last %3))
+                                                      (curve-line-intersection %1 %3))))
+                             curves (next (cycle lines)) (next (next (cycle lines))))
+        [dists1 dists2] (transpose isec-lend-dists)]
+    (every? (partial > 1) (map min (next (cycle dists2)) dists1))))
+
+
+;; xml with clojure: don't use riveted.core -> exceptions
+
+            [clojure.data.xml :as data.xml]
+
+(defn write [s] (spit "test.svg" s))
+
+(def s
+  (slurp "test/svg_cuneiform/images/1-0.svg")
+  ;;(slurp "test/svg_cuneiform/images/VAT_11022_SJakob.svg")
+  ;;(slurp "test/svg_cuneiform/images/VAT_10908_Vs.svg")
+  ;;(slurp "test/svg_cuneiform/images/VAT_10622_HPSchaudig.svg")
+  ;;(slurp "test/svg_cuneiform/images/VAT_10686+Obv_HPSchaudig.svg")
+  )
+
+(comment)
+(let [tags (data.xml/element :foo {:foo-attr "foo value"}
+                             (data.xml/element :bar {:bar-attr "bar value"}
+                                               (data.xml/element :baz {} "The baz value")))]
+  (with-open [out-file (java.io.FileWriter. "foo.xml")]
+    (data.xml/emit tags out-file))
+  (with-open [input (java.io.FileInputStream. "foo.xml")]
+    (data.xml/parse input)))
+
+
+(time (let [tags (data.xml/parse (java.io.StringReader. s))]
+        (with-open [out-file (java.io.OutputStreamWriter.
+                              (java.io.FileOutputStream. "output.xml") "UTF-8")]
+          (data.xml/emit tags out-file))))
+
+
+(time (data.xml/parse (java.io.StringReader. s))
+      ;; ohne output: fast doppelt so schnell 11.400,  26102
+      )
+
+(time (data.xml/emit-str (data.xml/parse-str s))) ;; 9550
+
+
+(data.xml/parse-str s)
+
+(time (xml/emit-element (zip/root (zip/xml-zip (xml/parse (java.io.ByteArrayInputStream. (.getBytes s))))))) ;; 6282
+
+
+;; new reducer of poly-beziers
+(defn cubic-bezier
+  "Evaluates cubic bezier curve"
+  [controls t]
+  (mapv #(polynomial (bezier-coeffs %) t) (transpose controls)))
+
+(defn bezier-merge
+  "Takes 7 points describing a cubic polybezier curve.
+   Returns 4 points of a cubic bezier."
+  [ptlist]
+  (letfn [(calc-p1 [p0 p2 p t]
+            (map #(/ (- %1 (* (- 1 t) (- 1 t) %2) (* t t %3))
+                     (* 2 t (- 1 t))) p p0 p2))]
+    (let [p0 (first ptlist)
+          p2 (last ptlist)
+          ;; calculate p1 for quadratic bezier curve
+          pts (concat (mapv (partial cubic-bezier (take 4 ptlist)) [(/ 3) (/ 2 3) 1])
+                      (mapv (partial cubic-bezier (drop 3 ptlist)) [(/ 3) (/ 2 3) 1]))
+
+          p2p-dists (mapv (partial euclidean-squared) (cons p0 pts) pts)
+          path-lengths (reductions + p2p-dists)
+          ts (map #(/ % (last path-lengths)) (butlast path-lengths))
+          p1 (average (map (partial calc-p1 p0 p2) (butlast pts) ts))
+          ]
+      ;; expand degree
+      [p1 (map #(/ (+ %1 (* 2 %2)) 3) p0 p1) (map #(/ (+ %1 (* 2 %2)) 3) p2 p1) p2]
+
+      )))
+
+;;(bezier-merge ['(100 200) '(100 100) '(250 100) '(250 200) '(250 300) '(400 300) '(400 200)])
+
+;;(mapv bezier-coeffs (transpose (take 4 p)))
+
+
+(defn- k-means-reduce2 [ptlist];; TODO: test!
+  (letfn [(order-points [points]
+            (apply min-key #(reduce + (map euclidean-squared % (rest %)))
+                   (permutations points)))]
+      (if (> (count ptlist) 4)
+        (let [steps (filter (partial > 1) (map #(min (euclidean-squared (first ptlist) %)
+                                                     (euclidean-squared (furthest-from-first ptlist) %))
+                                               (take-nth 4 ptlist)))]
+          (if (= 0 (count steps))
+            (order-points (k-means ptlist))
+            (k-means-reduce (concat (bezier-merge (take 7 ptlist))
+                                     (drop-last 5 (drop 5 ptlist))
+                                     (bezier-merge (take-last 7 ptlist)))))
+        ptlist))))
+
+;;(def p (apply mapv vector (partition 16 (range 32))))
+
+;;(k-means-reduce p)
+
+(def config4
+  {:filename "test/svg_cuneiform/images/VAT_10686+Obv_HPSchaudig.svg"
+   :layer-id "g20"})
+
+;; b (time (spit "test.xml" (xml/emit-element (zip/root (zip/xml-zip (xml/parse (java.io.ByteArrayInputStream. (.getBytes (slurp (config :filename)))))))))) ; 243850 ms vs. bisher 7617 bei config 3
+
+;; normal:
+;; config1: 3129-3414
+;; config2: 9780-10114
+;; config3: 12018-12655
+;; config4: out of memory
