@@ -1,7 +1,7 @@
 (ns svg-cuneiform.matcher
   (:require [analemma.xml :refer [parse-xml transform-xml filter-xml emit]]
             [clojure.zip :as zip]
-            [clojure.set :refer [union]]
+            [clojure.set :refer [union difference]]
             [clojure.math.combinatorics :refer [permutations selections combinations]]
             [incanter [core :refer [matrix decomp-svd solve-quadratic]]]
             [svg-cuneiform.math :refer :all]
@@ -12,31 +12,65 @@
 ;;
 
 
-(defn- k-means
-  "Modified 4-means with 2 fixed centroids"
-  [data]
-  (letfn [(closest-ind [pt ptlist]
-            (apply min-key #(euclidean-squared pt (nth ptlist %))
-                   (range (count ptlist))))
-          (nth-centroid [labels n]
-            (average (map second (filter #(= n (first %))
-                                         (map vector labels data)))))
+(defn bezier-merge
+  "Takes 7 points describing a cubic polybezier curve.
+   Returns 4 points of a cubic bezier."
+  [ptlist]
+  (letfn [(calc-p1 [p0 p2 p t]
+            (map #(/ (- %1 (* (- 1 t) (- 1 t) %2) (* t t %3))
+                     (* 2 t (- 1 t))) p p0 p2))]
+    (let [p0 (first ptlist)
+          p2 (last ptlist)
+          ;; calculate p1 for quadratic bezier curve
+          pts (concat (mapv (partial cubic-bezier (take 4 ptlist)) [(/ 3) (/ 2 3) 1])
+                      (mapv (partial cubic-bezier (drop 3 ptlist)) [(/ 3) (/ 2 3) 1]))
+
+          p2p-dists (mapv (partial euclidean-squared) (cons p0 pts) pts)
+          path-lengths (reductions + p2p-dists)
+          ts (map #(/ % (last path-lengths)) (butlast path-lengths))
+          p1 (average (map (partial calc-p1 p0 p2) (butlast pts) ts))
           ]
-    (loop [old-labels (take (count data) (repeat -1))
-           centroids (conj (vec (take 3 data)) (furthest-from-first data))]
-      (let [new-labels (map #(closest-ind % centroids) data)]
-        (if (not= old-labels new-labels)
-          (recur new-labels [(first centroids) (nth-centroid new-labels 1)
-                             (nth-centroid new-labels 2) (last centroids)])
-          centroids)))))
+      ;; expand degree
+      [p0 (map #(/ (+ %1 (* 2 %2)) 3) p0 p1) (map #(/ (+ %1 (* 2 %2)) 3) p2 p1) p2])))
 
+(defn k-means [data k]
+     (letfn [(closest-ind [pt ptlist]
+              (apply min-key #(euclidean-squared pt (nth ptlist %))
+                      (range (count ptlist))))
+             (update-centroids [data map]
+               (labels average (persistent!
+                             (reduce #(assoc! %1 (nth labels %2)
+                                              (cons (nth data %2) (get %1 (nth labels %2))))
+                                     (transient (vec (take (count (set labels)) (repeat []))))
+                                     (range (count data))))))]
+       (loop [old-labels (take (count data) (repeat -1))
+              centroids (take k data)]
+         (let [new-labels (map #(closest-ind % centroids) data)]
+           (if (not= old-labels new-labels)
+             (recur new-labels (update-centroids data new-labels))
+             centroids)))))
 
-(defn- k-means-reduce [ptlist]
+(defn- k-means-reduce
+  "Reduces a polybezier to a cubic bezier.
+   Returns nil if no satisfying reduction is possible"
+  [ptlist]
   (letfn [(order-points [points]
             (apply min-key #(reduce + (map euclidean-squared % (rest %)))
                    (permutations points)))]
-    (if (> (count ptlist) 4) (order-points (k-means ptlist)) ptlist)))
+      (if (< 4 (count ptlist))
+        (let [curve-ends [(first ptlist) (furthest-from-first ptlist)]
+              unassigned-ends (filter #(< 1 (apply min (map (partial euclidean-squared %)
+                                                            curve-ends)))
+                                      (take-nth 4 ptlist))]
+          (if (= 0 (count unassigned-ends))
+            (order-points (k-means ptlist 4))
+            (if (every? #(> 4 (euclidean-squared (first unassigned-ends) %))
+                        unassigned-ends)
+              (order-points (bezier-merge (k-means ptlist 7)))
+              nil)))
+        ptlist)))
 
+;;(list2path (k-means-reduce c))
 
 (defn classify-paths ;; TODO: improve; threshold varies
   "Uses second singular value of data lists to distiguish lines and curves.
@@ -47,9 +81,9 @@
                                           decomp-svd matrix whiten second) paths))))
 
 
-(defn classify-and-reduce [paths threshold]
+(defn classify-and-reduce [paths threshold];; vllt statt classifier 2 unabh filter-ops
   (let [[curves lines] (classify-paths paths threshold)]
-    [(zipmap (keys curves) (map k-means-reduce (vals curves)))
+    [(filter #(val %) (zipmap (keys curves) (map k-means-reduce (vals curves))))
      (zipmap (keys lines) (map #(vector (first %) (furthest-from-first %)) (vals lines)))]))
 
 
@@ -88,13 +122,12 @@
                  (frequencies (map set (three-closest-pts ptlist)))))))
 
 
-(defn- flip-curves [reduced-paths triple]
+(defn- flip-curves [curves]
   (letfn [(costs [possibility]
             (reduce + (map #(euclidean-squared (last %1) (first %2))
                            possibility
                            (next (cycle possibility)))))]
-    (let [curves (replace reduced-paths triple)
-          flips (selections [true false] 3)
+    (let [flips (selections [true false] 3)
           possibilities (map (partial map #(if %3 %1 %2)
                                       curves (map reverse curves)) flips)]
       (apply min-key costs possibilities))))
@@ -113,6 +146,11 @@
             (vec curves) (range 3))))
 
 
+'([[250.583 267.391] [252.187 270.538] [251.937 273.399] [249.833 275.974]]
+  [[251.5 272.725] [252.25 271.892] [253.25 271.892] [254.167 271.975]]
+  [[253.25 271.891] [252.667 271.808] [252.167 271.474] [251.917 270.891]])
+
+
 (defn- valid?
   "For each merging point, check if one curve ends on the other
    - max-dist: maximum distance between one curve end and the other curve"
@@ -123,7 +161,11 @@
                                       (apply min (map (partial euclidean-squared (last %3))
                                                       (curve-line-intersection %1 %3))))
                              curves (next (cycle lines)) (next (next (cycle lines))))
-        [dists1 dists2] (transpose isec-lend-dists)]
+        [dists1 dists2] (transpose isec-lend-dists)
+        ;;a (if (some #(< (euclidean-squared [250.583 267.391] %) 1) (apply concat curves)) (print [curves (take 3 (next (cycle dists2))) dists1 (map min (next (cycle dists2)) dists1)]))
+        ;;b (print (map min (next (cycle dists2)) dists1))
+        c (print [curves lines isec-lend-dists])
+        ]
     (every? (partial > max-dist) (map min (next (cycle dists2)) dists1))))
 
 
@@ -134,7 +176,7 @@
         triples (get-triples references)
         wedges (filter #(valid? (second %) max-merge-dist)
                        (zipmap triples
-                               (map (partial flip-curves curves)
+                               (map (fn [triple] (flip-curves (replace curves triple)))
                                     triples)))
         max-dist (reduce max 0
                          (flatten (map #((fn [l] (map euclidean-squared l (cycle (rest l))))
@@ -149,7 +191,7 @@
    If there are 3 identical such triples, check if they can be curves
    and merge them into 1 polybezier"
   [curve-map max-merge-dist]
-  (loop [curves curve-map wedges [] used-keys #{} max-dist 0]
+  (loop [curves curve-map wedges [] used-keys #{} max-dist 0] ;; TODO: think about transients
     (let [[w keys new-max] (first-strategy-rec curves max-merge-dist)]
       (if (= 0 (count keys))
         [wedges used-keys max-dist curves]
@@ -173,7 +215,7 @@
         triples (get-triples2 (pairwise-dist references references) max-dist)
         wedges (filter #(valid? (second %) max-merge-dist)
                        (zipmap triples
-                               (map (partial flip-curves curves) triples)))
+                               (map (fn [triple] (flip-curves (replace curves triple))) triples)))
         used-keys (flatten (keys wedges))
         paths (map #(merge-ends (second %) (replace references (first %)))
                    wedges)]

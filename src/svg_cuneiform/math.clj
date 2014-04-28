@@ -70,7 +70,7 @@
 ;; Specific functions
 ;;
 
-(defn furthest-from-first [ptlist]
+(defn furthest-from-first [ptlist];; TODO: replace by "find-ends"
   (apply max-key #(euclidean-squared (first ptlist) %) ptlist))
 
 (defn bezier-coeffs [v-part]
@@ -90,3 +90,10 @@
         ts (cubic-zeros A B C D)]
     (transpose [(map #(polynomial [ax bx cx dx] %) ts)
                 (map #(polynomial [ay by cy dy] %) ts)])))
+
+
+(defn cubic-bezier
+  "Takes control points and the value for variable t and
+   evaluates corresponding cubic bezier curve for t"
+  [controls t]
+  (mapv #(polynomial (bezier-coeffs %) t) (transpose controls)))
