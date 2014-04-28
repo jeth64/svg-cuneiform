@@ -37,12 +37,12 @@
      (letfn [(closest-ind [pt ptlist]
               (apply min-key #(euclidean-squared pt (nth ptlist %))
                       (range (count ptlist))))
-             (update-centroids [data map]
-               (labels average (persistent!
-                             (reduce #(assoc! %1 (nth labels %2)
-                                              (cons (nth data %2) (get %1 (nth labels %2))))
-                                     (transient (vec (take (count (set labels)) (repeat []))))
-                                     (range (count data))))))]
+             (update-centroids [data labels]
+               (map average (persistent!
+                         (reduce #(assoc! %1 (nth labels %2)
+                                          (cons (nth data %2) (get %1 (nth labels %2))))
+                                 (transient (vec (take (count (set labels)) (repeat []))))
+                                 (range (count data))))))]
        (loop [old-labels (take (count data) (repeat -1))
               centroids (take k data)]
          (let [new-labels (map #(closest-ind % centroids) data)]
@@ -69,8 +69,6 @@
               (order-points (bezier-merge (k-means ptlist 7)))
               nil)))
         ptlist)))
-
-;;(list2path (k-means-reduce c))
 
 (defn classify-paths ;; TODO: improve; threshold varies
   "Uses second singular value of data lists to distiguish lines and curves.
@@ -122,7 +120,7 @@
                  (frequencies (map set (three-closest-pts ptlist)))))))
 
 
-(defn- flip-curves [curves]
+(defn flip-curves [curves]
   (letfn [(costs [possibility]
             (reduce + (map #(euclidean-squared (last %1) (first %2))
                            possibility
@@ -151,7 +149,7 @@
   [[253.25 271.891] [252.667 271.808] [252.167 271.474] [251.917 270.891]])
 
 
-(defn- valid?
+(defn valid?
   "For each merging point, check if one curve ends on the other
    - max-dist: maximum distance between one curve end and the other curve"
   [curves max-dist]
