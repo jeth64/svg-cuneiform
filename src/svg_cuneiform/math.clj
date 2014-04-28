@@ -7,7 +7,7 @@
 ;;
 
 (defn round
-  ([decimal-places n] (read-string (format (str "%." decimal-places "f") n)))
+  ([decimal-places n] (read-string (format (str "%." decimal-places "f") (double n))))
   ([n] (round 0 n)))
 
 (defn asinh [x] (Math/log (+ x (Math/sqrt (inc (* x x))))))
@@ -19,7 +19,7 @@
 (defn cubic-zeros
   "Lists all real roots to Ax^3 + Bx^2 + Cx + D"
   [A B C D]
-  (let [[a b c] (map #(/ % A) [B C D])
+  (let [[a b c] (map #(/ (double %) A) [B C D])
         p (- b (/ (* a a) 3))
         q (+ (/ (* 2 a a a) 27) (/ (* a b) -3) c)
         z (Math/sqrt (/ (Math/abs p) 3))]
