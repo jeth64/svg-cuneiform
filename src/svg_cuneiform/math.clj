@@ -6,7 +6,9 @@
 ;; Basic functions
 ;;
 
-(defn round [decimal-places n] (.setScale (bigdec n) decimal-places java.math.RoundingMode/HALF_EVEN))
+(defn round
+  ([decimal-places n] (read-string (format (str "%." decimal-places "f") n)))
+  ([n] (round 0 n)))
 
 (defn asinh [x] (Math/log (+ x (Math/sqrt (inc (* x x))))))
 
