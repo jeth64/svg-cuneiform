@@ -72,8 +72,6 @@
 ;; Specific functions
 ;;
 
-(defn furthest-from-first [ptlist];; TODO: replace by "find-ends"
-  (apply max-key #(euclidean-squared (first ptlist) %) ptlist))
 
 (defn bezier-coeffs [v-part]
   [(apply + (map * [-1 3 -3 1] v-part)) ;; * t^3

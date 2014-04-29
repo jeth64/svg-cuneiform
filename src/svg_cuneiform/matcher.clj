@@ -12,6 +12,11 @@
 ;;
 
 
+(defn find-ends [ptlist]
+  [(first ptlist)
+   (apply max-key #(euclidean-squared (first ptlist) %) ptlist)])
+
+
 (defn bezier-merge
   "Takes 7 points describing a cubic polybezier curve.
    Returns 4 points of a cubic bezier."
@@ -58,7 +63,7 @@
             (apply min-key #(reduce + (map euclidean-squared % (rest %)))
                    (permutations points)))]
       (if (< 4 (count ptlist))
-        (let [curve-ends [(first ptlist) (furthest-from-first ptlist)]
+        (let [curve-ends (find-ends ptlist)
               unassigned-ends (filter #(< 1 (apply min (map (partial euclidean-squared %)
                                                             curve-ends)))
                                       (take-nth 4 ptlist))]
@@ -69,6 +74,7 @@
               (order-points (bezier-merge (k-means ptlist 7)))
               nil)))
         ptlist)))
+
 
 (defn classify-paths ;; TODO: improve; threshold varies
   "Uses second singular value of data lists to distiguish lines and curves.
@@ -82,7 +88,7 @@
 (defn classify-and-reduce [paths threshold];; vllt statt classifier 2 unabh filter-ops
   (let [[curves lines] (classify-paths paths threshold)]
     [(filter #(val %) (zipmap (keys curves) (map k-means-reduce (vals curves))))
-     (zipmap (keys lines) (map #(vector (first %) (furthest-from-first %)) (vals lines)))]))
+     (zipmap (keys lines) (map find-ends (vals lines)))]))
 
 
 ;;
@@ -144,11 +150,6 @@
             (vec curves) (range 3))))
 
 
-'([[250.583 267.391] [252.187 270.538] [251.937 273.399] [249.833 275.974]]
-  [[251.5 272.725] [252.25 271.892] [253.25 271.892] [254.167 271.975]]
-  [[253.25 271.891] [252.667 271.808] [252.167 271.474] [251.917 270.891]])
-
-
 (defn valid?
   "For each merging point, check if one curve ends on the other
    - max-dist: maximum distance between one curve end and the other curve"
@@ -160,11 +161,10 @@
                                                       (curve-line-intersection %1 %3))))
                              curves (next (cycle lines)) (next (next (cycle lines))))
         [dists1 dists2] (transpose isec-lend-dists)
-        ;;a (if (some #(< (euclidean-squared [250.583 267.391] %) 1) (apply concat curves)) (print [curves (take 3 (next (cycle dists2))) dists1 (map min (next (cycle dists2)) dists1)]))
-        ;;b (print (map min (next (cycle dists2)) dists1))
-        c (print [curves lines isec-lend-dists])
+        a (print [dists1 (take 3 (next (cycle dists2)))] )
         ]
-    (every? (partial > max-dist) (map min (next (cycle dists2)) dists1))))
+    (every? (partial >= (* max-dist max-dist))
+            (map min (next (cycle dists2)) dists1))))
 
 
 (defn- first-strategy-rec [curve-map max-merge-dist]
